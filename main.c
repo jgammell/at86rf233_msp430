@@ -15,9 +15,9 @@
 volatile AT86_Status_Enum status;
 #define ADDRESS (0xAA)
 #define PAYLOAD (0xFF)
-uint8_t received_payload[3];
+uint8_t received_payload[32];
 
-uint8_t transmit_payload[3];
+uint8_t transmit_payload[32];
 
 volatile uint8_t phases[256];
 volatile uint8_t phases_idx = 0;
@@ -25,16 +25,13 @@ volatile uint8_t phases_idx = 0;
 #pragma vector=TIMER0_A0_VECTOR
 void __attribute__ ((interrupt)) recordPhase(void)
 {
+    Timer_A_clearCaptureCompareInterrupt(TIMER_A0_BASE, 0);
     if(phases_idx < 256)
     {
         phases[phases_idx] = AT86_getPhase();
         phases_idx += 1;
     }
 }
-
-
-
-
 
 void init(void)
 {
@@ -51,7 +48,7 @@ void init(void)
     {
      .clockSource = TIMER_A_CLOCKSOURCE_SMCLK,
      .clockSourceDivider = TIMER_A_CLOCKSOURCE_DIVIDER_1,
-     .timerPeriod = (4UL*UCS_getSMCLK())/1000000UL,
+     .timerPeriod = (16UL*UCS_getSMCLK())/1000000UL,
      .timerInterruptEnable_TAIE = TIMER_A_TAIE_INTERRUPT_DISABLE,
      .captureCompareInterruptEnable_CCR0_CCIE = TIMER_A_CCIE_CCR0_INTERRUPT_ENABLE,
      .timerClear = TIMER_A_DO_CLEAR,
@@ -62,59 +59,54 @@ void init(void)
     __enable_interrupt();
 }
 
-void startPhaseRecord(void)
-{
-    phases_idx = 0;
-    Timer_A_clearCaptureCompareInterrupt(TIMER_A0_BASE, 0);
-    Timer_A_startCounter(TIMER_A0_BASE, TIMER_A_UP_MODE);
-}
-
-void stopPhaseRecord(void)
-{
-    Timer_A_stop(TIMER_A0_BASE);
-}
-
 void transmitPayload(uint8_t data)
 {
-    status = AT86_getStatus();
     AT86_prepareTx();
-    while(status != statusPLL_ON)
-        status = AT86_getStatus();
+    while(AT86_getStatus() != statusPLL_ON);
     transmit_payload[0] = ADDRESS;
-    transmit_payload[1] = data;
-    AT86_loadTx(transmit_payload, 2, 0);
+    memset(transmit_payload+1, 0xFF, 31);
+    AT86_loadTx(transmit_payload, 32, 0);
     AT86_execTx();
-    while(status != statusBUSY_TX)
-        status = AT86_getStatus();
-    while(status != statusPLL_ON)
-        status = AT86_getStatus();
+    while(AT86_getStatus() != statusBUSY_TX);
+    while(AT86_getStatus() != statusPLL_ON);
     GPIO_toggleOutputOnPin(MCU_LED1_PORT, MCU_LED1_PIN);
     char msg[64];
-    sprintf(msg, "(TX) Address: %x, Payload: %x\n", transmit_payload[0], transmit_payload[1]);
-    VCOM_tx((uint8_t *) msg, strlen(msg));
+    sprintf(msg, "(TX) Address: 0x%x, Payload: 0x%x\n", transmit_payload[0], transmit_payload[1]);
+    VCOM_tx((uint8_t *)msg, strlen(msg));
 }
 
 void receivePayload(void)
 {
     AT86_prepareRx();
-    volatile AT86_Irq_Enum irq = AT86_readIstat();
-    while(!(irq & irqRX_START))
-        irq = AT86_readIstat();
-    while(!(irq & irqTRX_END))
-        irq = AT86_readIstat();
-    //memset(received_payload, 0, 4);
-    AT86_readRx(received_payload, 3, 0);
-    if(received_payload[0]==2 && received_payload[1]==ADDRESS)
+    while((!AT86_irqPending()) && (!(AT86_readIstat() & irqRX_START)));
+    phases_idx = 0;
+    while((!AT86_irqPending()) && (!(AT86_readIstat() & irqTRX_END)))
+    {
+        phases[phases_idx] = AT86_getPhase();
+        ++phases_idx;
+    }
+    AT86_readRx(received_payload, 4, 0);
+    if((received_payload[0] == 32) && (received_payload[1]==ADDRESS))
     {
         GPIO_toggleOutputOnPin(MCU_LED1_PORT, MCU_LED1_PIN);
         char msg[64];
-        sprintf(msg, "(valid RX) Length: %d, Address: %x, Payload: %x\n", received_payload[0], received_payload[1], received_payload[2]);
+        sprintf(msg, "(valid RX) Length: %d, Address: 0x%x, Payload: 0x%x\n", received_payload[0], received_payload[1], received_payload[2]);
+        VCOM_tx((uint8_t *)msg, strlen(msg));
+        uint8_t idx;
+        for(idx=0; idx<phases_idx; ++idx)
+        {
+            sprintf(msg, "%x\n", phases[idx]);
+            while(VCOM_isTransmitting());
+            VCOM_tx((uint8_t *) msg, strlen(msg));
+        }
+        sprintf(msg, "done\n");
+        while(VCOM_isTransmitting());
         VCOM_tx((uint8_t *)msg, strlen(msg));
     }
     else
     {
         char msg[64];
-        sprintf(msg, "(invalid RX) Length: %d, Address: %x, Payload: %x\n", received_payload[0], received_payload[1], received_payload[2]);
+        sprintf(msg, "(invalid RX) Length: %d, Address: 0x%x, Payload: 0x%x\n", received_payload[0], received_payload[1], received_payload[2]);
         VCOM_tx((uint8_t *)msg, strlen(msg));
     }
 }
@@ -137,7 +129,7 @@ void parseCmd(void)
         receivePayload();
     else
     {
-        VCOM_tx(s, strlen(s));
+        VCOM_tx((uint8_t *)s, strlen(s));
         assert(false);
     }
 }

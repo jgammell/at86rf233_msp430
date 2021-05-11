@@ -10,6 +10,8 @@
 #include "gpio.h"
 #include "hal.h"
 
+volatile bool irq_pending = false;
+
 void AT86_init(void)
 {
     GPIO_setAsOutputPin(AT86_PWR_PORT, AT86_PWR_PIN);
@@ -18,7 +20,12 @@ void AT86_init(void)
     GPIO_setOutputHighOnPin(AT86_RESET_PORT, AT86_RESET_PIN);
     GPIO_setAsOutputPin(AT86_WAKEUP_PORT, AT86_WAKEUP_PIN);
     GPIO_setOutputLowOnPin(AT86_WAKEUP_PORT, AT86_WAKEUP_PIN);
+    REG_write(REG__IRQ_MASK, 0);
+    REG_read(REG__IRQ_STATUS);
     GPIO_setAsInputPin(AT86_IRQ_PORT, AT86_IRQ_PIN);
+    GPIO_disableInterrupt(AT86_IRQ_PORT, AT86_IRQ_PIN);
+    GPIO_selectInterruptEdge(AT86_IRQ_PORT, AT86_IRQ_PIN, GPIO_LOW_TO_HIGH_TRANSITION);
+    GPIO_clearInterrupt(AT86_IRQ_PORT, AT86_IRQ_PIN);
     SPI_init();
     GPIO_setOutputHighOnPin(AT86_PWR_PORT, AT86_PWR_PIN);
     volatile uint32_t delay_idx;
@@ -179,15 +186,38 @@ void AT86_execTx(void)
 
 void AT86_prepareRx(void)
 {
+    REG_write(REG__IRQ_MASK, irqRX_START);
+    GPIO_clearInterrupt(AT86_IRQ_PORT, AT86_IRQ_PIN);
+    GPIO_enableInterrupt(AT86_IRQ_PORT, AT86_IRQ_PIN);
     AT86_sendCmd(cmdRX_ON);
+}
+
+void AT86_execRx(void)
+{
+    REG_write(REG__IRQ_MASK, irqTRX_END);
+    GPIO_clearInterrupt(AT86_IRQ_PORT, AT86_IRQ_PIN);
+    GPIO_enableInterrupt(AT86_IRQ_PORT, AT86_IRQ_PIN);
 }
 
 void AT86_readRx(uint8_t * dest, uint8_t len, uint8_t offset)
 {
+    REG_write(REG__IRQ_MASK, 0);
     SRAM_read(offset, dest, len);
 }
 
 AT86_Irq_Enum AT86_readIstat(void)
 {
+    irq_pending = false;
     return (AT86_Irq_Enum) REG_read(REG__IRQ_STATUS);
+}
+
+bool AT86_irqPending(void)
+{
+    return irq_pending;
+}
+
+void __attribute__ ((interrupt)) _pinIrqHandler(void)
+{
+    irq_pending = true;
+    GPIO_disableInterrupt(AT86_IRQ_PORT, AT86_IRQ_PIN);
 }

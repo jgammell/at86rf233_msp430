@@ -101,4 +101,9 @@ char * VCOM_getRxString(void)
     return (char *) uart_rx;
 }
 
+bool VCOM_isTransmitting(void)
+{
+    return uart_tx_len!=0;
+}
+
 

@@ -98,4 +98,6 @@ void AT86_readRx(uint8_t * dest, uint8_t len, uint8_t offset);
 
 AT86_Irq_Enum AT86_readIstat(void);
 
+bool AT86_irqPending(void);
+
 #endif /* AT86RF233_HEADERS_AT86_H_ */

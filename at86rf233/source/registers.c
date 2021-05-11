@@ -50,23 +50,28 @@ static uint8_t _rx(void)
 
 void    REG_write(uint8_t address, uint8_t value)
 {
+    __disable_interrupt();
     GPIO_setOutputLowOnPin(AT86_SS_PORT, AT86_SS_PIN);
     _tx(address|0xC0);
     _tx(value);
     GPIO_setOutputHighOnPin(AT86_SS_PORT, AT86_SS_PIN);
+    __enable_interrupt();
 }
 
 uint8_t REG_read(uint8_t address)
 {
+    __disable_interrupt();
     GPIO_setOutputLowOnPin(AT86_SS_PORT, AT86_SS_PIN);
     _tx(address|0x80);
     uint8_t rv = _rx();
     GPIO_setOutputHighOnPin(AT86_SS_PORT, AT86_SS_PIN);
+    __enable_interrupt();
     return rv;
 }
 
 void    SRAM_read(uint8_t offset, uint8_t * dest, uint8_t len)
 {
+    __disable_interrupt();
     GPIO_setOutputLowOnPin(AT86_SS_PORT, AT86_SS_PIN);
     _tx(0x00);
     _tx(offset);
@@ -74,10 +79,12 @@ void    SRAM_read(uint8_t offset, uint8_t * dest, uint8_t len)
     for(idx=0; idx<len; ++idx)
         dest[idx] = _rx();
     GPIO_setOutputHighOnPin(AT86_SS_PORT, AT86_SS_PIN);
+    __enable_interrupt();
 }
 
 void    SRAM_write(uint8_t offset, const uint8_t * src, uint8_t len)
 {
+    __disable_interrupt();
     GPIO_setOutputLowOnPin(AT86_SS_PORT, AT86_SS_PIN);
     _tx(0x40);
     _tx(offset);
@@ -85,14 +92,17 @@ void    SRAM_write(uint8_t offset, const uint8_t * src, uint8_t len)
     for(idx=0; idx<len; ++idx)
         _tx(src[idx]);
     GPIO_setOutputHighOnPin(AT86_SS_PORT, AT86_SS_PIN);
+    __enable_interrupt();
 }
 
 void    FB_read(uint8_t * dest, uint8_t len)
 {
+    __disable_interrupt();
     GPIO_setOutputLowOnPin(AT86_SS_PORT, AT86_SS_PIN);
     _tx(0x20);
     uint8_t idx;
     for(idx=0; idx<len; ++idx)
         dest[idx] = _rx();
     GPIO_setOutputHighOnPin(AT86_SS_PORT, AT86_SS_PIN);
+    __enable_interrupt();
 }
