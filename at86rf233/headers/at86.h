@@ -94,6 +94,8 @@ void AT86_execTx(void);
 
 void AT86_prepareRx(void);
 
+void AT86_execRx(void);
+
 void AT86_readRx(uint8_t * dest, uint8_t len, uint8_t offset);
 
 AT86_Irq_Enum AT86_readIstat(void);

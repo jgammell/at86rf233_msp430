@@ -17,8 +17,8 @@ static volatile uint8_t uart_rx_idx = 0;
 static volatile bool uart_rx_available = false;
 #define UART_BREAKCHAR ('\n')
 
-static uint8_t uart_tx[256];
-static uint8_t uart_tx_len = 0;
+static volatile uint8_t uart_tx[256];
+static volatile uint8_t uart_tx_len = 0;
 static volatile uint8_t uart_tx_idx = 0;
 
 

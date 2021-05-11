@@ -20,8 +20,6 @@ void AT86_init(void)
     GPIO_setOutputHighOnPin(AT86_RESET_PORT, AT86_RESET_PIN);
     GPIO_setAsOutputPin(AT86_WAKEUP_PORT, AT86_WAKEUP_PIN);
     GPIO_setOutputLowOnPin(AT86_WAKEUP_PORT, AT86_WAKEUP_PIN);
-    REG_write(REG__IRQ_MASK, 0);
-    REG_read(REG__IRQ_STATUS);
     GPIO_setAsInputPin(AT86_IRQ_PORT, AT86_IRQ_PIN);
     GPIO_disableInterrupt(AT86_IRQ_PORT, AT86_IRQ_PIN);
     GPIO_selectInterruptEdge(AT86_IRQ_PORT, AT86_IRQ_PIN, GPIO_LOW_TO_HIGH_TRANSITION);
@@ -30,6 +28,8 @@ void AT86_init(void)
     GPIO_setOutputHighOnPin(AT86_PWR_PORT, AT86_PWR_PIN);
     volatile uint32_t delay_idx;
     for(delay_idx=100000; delay_idx>0; --delay_idx);
+    REG_write(REG__IRQ_MASK, 0);
+    REG_read(REG__IRQ_STATUS);
     AT86_sendCmd(cmdFORCE_TRX_OFF);
     AT86_Status_Enum status = AT86_getStatus();
     while(status != statusTRX_OFF)
@@ -186,7 +186,9 @@ void AT86_execTx(void)
 
 void AT86_prepareRx(void)
 {
-    REG_write(REG__IRQ_MASK, irqRX_START);
+    irq_pending = false;
+    AT86_readIstat();
+    REG_write(REG__IRQ_MASK, irqRX_START|irqTRX_END);
     GPIO_clearInterrupt(AT86_IRQ_PORT, AT86_IRQ_PIN);
     GPIO_enableInterrupt(AT86_IRQ_PORT, AT86_IRQ_PIN);
     AT86_sendCmd(cmdRX_ON);
@@ -194,7 +196,7 @@ void AT86_prepareRx(void)
 
 void AT86_execRx(void)
 {
-    REG_write(REG__IRQ_MASK, irqTRX_END);
+    irq_pending = false;
     GPIO_clearInterrupt(AT86_IRQ_PORT, AT86_IRQ_PIN);
     GPIO_enableInterrupt(AT86_IRQ_PORT, AT86_IRQ_PIN);
 }
@@ -216,8 +218,10 @@ bool AT86_irqPending(void)
     return irq_pending;
 }
 
+#pragma vector=PORT2_VECTOR
 void __attribute__ ((interrupt)) _pinIrqHandler(void)
 {
     irq_pending = true;
+    GPIO_clearInterrupt(AT86_IRQ_PORT, AT86_IRQ_PIN);
     GPIO_disableInterrupt(AT86_IRQ_PORT, AT86_IRQ_PIN);
 }

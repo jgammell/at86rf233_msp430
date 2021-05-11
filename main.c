@@ -5,33 +5,26 @@
 #include "at86.h"
 #include "gpio.h"
 #include "hal.h"
-#include "timer_a.h"
+#include "timer_b.h"
 #include "vcom.h"
 #include "assert_app.h"
 
 #define RECEIVE  ("RX")
 #define TRANSMIT ("TX")
+#define CHANNEL  ("CH")
 
 volatile AT86_Status_Enum status;
 #define ADDRESS (0xAA)
 #define PAYLOAD (0xFF)
-uint8_t received_payload[32];
 
-uint8_t transmit_payload[32];
 
-volatile uint8_t phases[256];
-volatile uint8_t phases_idx = 0;
+#define TX_PAYLOAD_LEN (64U)
+uint8_t transmit_payload[TX_PAYLOAD_LEN];
+uint8_t received_payload[TX_PAYLOAD_LEN];
 
-#pragma vector=TIMER0_A0_VECTOR
-void __attribute__ ((interrupt)) recordPhase(void)
-{
-    Timer_A_clearCaptureCompareInterrupt(TIMER_A0_BASE, 0);
-    if(phases_idx < 256)
-    {
-        phases[phases_idx] = AT86_getPhase();
-        phases_idx += 1;
-    }
-}
+#define NUM_PHASE_SAMPLES (256U)
+volatile uint8_t phases[NUM_PHASE_SAMPLES];
+volatile uint16_t phases_idx = 0;
 
 void init(void)
 {
@@ -44,55 +37,69 @@ void init(void)
     GPIO_setOutputLowOnPin(MCU_LED1_PORT, MCU_LED1_PIN);
     AT86_init();
     AT86_enablePhase(true);
-    Timer_A_initUpModeParam timer_settings =
+    AT86_setTxPower(0);
+    Timer_B_initUpModeParam timerb_settings =
     {
-     .clockSource = TIMER_A_CLOCKSOURCE_SMCLK,
-     .clockSourceDivider = TIMER_A_CLOCKSOURCE_DIVIDER_1,
-     .timerPeriod = (16UL*UCS_getSMCLK())/1000000UL,
-     .timerInterruptEnable_TAIE = TIMER_A_TAIE_INTERRUPT_DISABLE,
-     .captureCompareInterruptEnable_CCR0_CCIE = TIMER_A_CCIE_CCR0_INTERRUPT_ENABLE,
-     .timerClear = TIMER_A_DO_CLEAR,
+     .clockSource = TIMER_B_CLOCKSOURCE_ACLK,
+     .clockSourceDivider = TIMER_B_CLOCKSOURCE_DIVIDER_1,
+     .timerPeriod = 0xFFFF,
+     .timerInterruptEnable_TBIE = TIMER_B_TBIE_INTERRUPT_DISABLE,
+     .captureCompareInterruptEnable_CCR0_CCIE = TIMER_B_CCIE_CCR0_INTERRUPT_DISABLE,
+     .timerClear = TIMER_B_DO_CLEAR,
      .startTimer = false
     };
-    Timer_A_initUpMode(TIMER_A0_BASE, &timer_settings);
+    Timer_B_initUpMode(TIMER_B0_BASE, &timerb_settings);
     VCOM_init();
     __enable_interrupt();
 }
 
-void transmitPayload(uint8_t data)
+void transmitPayload(void)
 {
     AT86_prepareTx();
     while(AT86_getStatus() != statusPLL_ON);
     transmit_payload[0] = ADDRESS;
-    memset(transmit_payload+1, 0xFF, 31);
-    AT86_loadTx(transmit_payload, 32, 0);
+    memset(transmit_payload+1, 0xFF, TX_PAYLOAD_LEN-1);
+    AT86_loadTx(transmit_payload, TX_PAYLOAD_LEN, 0);
+    HWREG16(TIMER_B0_BASE + OFS_TBxR) = 0;
+    Timer_B_startCounter(TIMER_B0_BASE, TIMER_B_UP_MODE);
     AT86_execTx();
     while(AT86_getStatus() != statusBUSY_TX);
     while(AT86_getStatus() != statusPLL_ON);
+    uint32_t time = Timer_B_getCounterValue(TIMER_B0_BASE);
+    Timer_B_stop(TIMER_B0_BASE);
     GPIO_toggleOutputOnPin(MCU_LED1_PORT, MCU_LED1_PIN);
     char msg[64];
-    sprintf(msg, "(TX) Address: 0x%x, Payload: 0x%x\n", transmit_payload[0], transmit_payload[1]);
+    sprintf(msg, "(TX) Address: 0x%x, Time: %d us\n", transmit_payload[0], (1000000UL*time)/32768UL);
     VCOM_tx((uint8_t *)msg, strlen(msg));
 }
 
 void receivePayload(void)
 {
+    memset(received_payload, TX_PAYLOAD_LEN, 0);
     AT86_prepareRx();
     while((!AT86_irqPending()) && (!(AT86_readIstat() & irqRX_START)));
+    HWREG16(TIMER_B0_BASE + OFS_TBxR) = 0;
+    Timer_B_startCounter(TIMER_B0_BASE, TIMER_B_UP_MODE);
     phases_idx = 0;
+    AT86_execRx();
     while((!AT86_irqPending()) && (!(AT86_readIstat() & irqTRX_END)))
     {
-        phases[phases_idx] = AT86_getPhase();
-        ++phases_idx;
+        if(phases_idx != NUM_PHASE_SAMPLES)
+        {
+            phases[phases_idx] = AT86_getPhase();
+            ++phases_idx;
+        }
     }
+    uint32_t time = Timer_B_getCounterValue(TIMER_B0_BASE);
+    Timer_B_stop(TIMER_B0_BASE);
     AT86_readRx(received_payload, 4, 0);
-    if((received_payload[0] == 32) && (received_payload[1]==ADDRESS))
+    if((received_payload[0] == TX_PAYLOAD_LEN) && (received_payload[1]==ADDRESS))
     {
         GPIO_toggleOutputOnPin(MCU_LED1_PORT, MCU_LED1_PIN);
         char msg[64];
-        sprintf(msg, "(valid RX) Length: %d, Address: 0x%x, Payload: 0x%x\n", received_payload[0], received_payload[1], received_payload[2]);
+        sprintf(msg, "(valid RX) Length: %d, Address: 0x%x, Time: %d us\n", received_payload[0], received_payload[1], (1000000UL*time)/32768UL);
         VCOM_tx((uint8_t *)msg, strlen(msg));
-        uint8_t idx;
+        uint16_t idx;
         for(idx=0; idx<phases_idx; ++idx)
         {
             sprintf(msg, "%x\n", phases[idx]);
@@ -117,16 +124,18 @@ void parseCmd(void)
     char msg[2] = "\n";
     VCOM_tx((uint8_t *) msg, 1);
     if(!strcmp(s, TRANSMIT))
+        transmitPayload();
+    else if(!strcmp(s, RECEIVE))
+        receivePayload();
+    else if(!strcmp(s, CHANNEL))
     {
         while(!VCOM_rxAvailable());
         s = VCOM_getRxString();
-        int data;
-        sscanf(s, "%d\n", &data);
-        assert(data == (data&0xFF));
-        transmitPayload((uint8_t) data);
+        int channel;
+        sscanf(s, "%d\n", &channel);
+        channel = channel&0x1F;
+        AT86_setChan(channel);
     }
-    else if(!strcmp(s, RECEIVE))
-        receivePayload();
     else
     {
         VCOM_tx((uint8_t *)s, strlen(s));
@@ -134,7 +143,7 @@ void parseCmd(void)
     }
 }
 
-int main(void)
+void main(void)
 {
     init();
 
@@ -151,6 +160,4 @@ int main(void)
             parseCmd();
     }
 
-
-    return (0);
 }
