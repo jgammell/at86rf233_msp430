@@ -5,6 +5,14 @@
  *      Author: jgamm
  */
 
+// This file contains definitions of many constants defined in the AT86RF233 datasheet. Typos may exist, as only some of these are currently used in the project.
+// They are named using the following convention: <type>__<register name>__<field name>
+// The type can be REG for a register base address, RST for a register reset value, MASK for a bitmask of a field in the register, or SHIFT for the number of bits until the start of the field.
+// Register and field names are the same as those listed in the datasheet.
+// For explanations of each of these definitions, see the datasheet.
+
+// The file also contains declarations for functions implemented in registers.c which facilitate communication over SPI with the AT86RF233, as described in the datasheet.
+
 #ifndef AT86RF233_HEADERS_REGISTERS_H_
 #define AT86RF233_HEADERS_REGISTERS_H_
 
@@ -401,17 +409,17 @@
 #define MASK__PHY_PMU_VALUE__PMU_VALUE        (0xFF)
 #define SHIFT__PHY_PMU_VALUE__PMU_VALUE       (0x00)
 
-void    SPI_init(void);
+void    SPI_init(void); // Initializes MSP430 SPI peripheral that will be used to talk to AT86RF233
 
-void    REG_write(uint8_t address, uint8_t value);
+void    REG_write(uint8_t address, uint8_t value); // Writes a value to one of the AT86RF233 registers.
 
-uint8_t REG_read(uint8_t address);
+uint8_t REG_read(uint8_t address); // Reads the value of one of the AT86RF233 registers.
 
-void    SRAM_read(uint8_t offset, uint8_t * dest, uint8_t len);
+void    SRAM_read(uint8_t offset, uint8_t * dest, uint8_t len); // Reads part of the TRX buffer in the AT86RF233.
 
-void    SRAM_write(uint8_t offset, const uint8_t * src, uint8_t len);
+void    SRAM_write(uint8_t offset, const uint8_t * src, uint8_t len); // Writes to part of the TRX buffer in the AT86RF233.
 
-void    FB_read(uint8_t * dest, uint8_t len);
+void    FB_read(uint8_t * dest, uint8_t len); // Reads from the beginning of the TRX buffer in the AT86RF233.
 
 
 #endif /* AT86RF233_HEADERS_REGISTERS_H_ */
