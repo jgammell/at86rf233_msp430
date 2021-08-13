@@ -20,6 +20,7 @@ void assert(bool condition)
         GPIO_setAsOutputPin(MCU_LED2_PORT, MCU_LED2_PIN);
         GPIO_setOutputLowOnPin(MCU_LED1_PORT, MCU_LED1_PIN);
         GPIO_setOutputHighOnPin(MCU_LED2_PORT, MCU_LED2_PIN);
+        uint32_t delay_idx;
         while(1) // Infinite loop
         {
             for(delay_idx=100000; delay_idx>0; --delay_idx);
